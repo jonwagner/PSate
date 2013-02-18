@@ -1,0 +1,21 @@
+<?xml version="1.0"?>
+<package xmlns="http://schemas.microsoft.com/packaging/2010/07/nuspec.xsd">
+  <metadata>
+    <id>PSate</id>
+    <version>1.0.0</version>
+    <title>PSate</title>
+    <description>
+    A test runner module for PowerShell, supporting TDD- and BDD-style test cases,
+    NUnit-compatible test results, batch running or ISE F5 testing, and setup/teardown constructs.
+	Part of the PSST PowerShell Suite for Testing.
+    </description>
+    <tags>powershell unit testing test testrunner runner psst</tags>
+    <authors>Jon Wagner</authors>
+    <projectUrl>https://github.com/jonwagner/PSate</projectUrl>
+    <licenseUrl>http://opensource.org/licenses/ms-pl.html</licenseUrl>
+  </metadata>
+  <files>
+    <file src="PSate.psm1" target="tools" />
+    <file src="init.ps1" target="tools" />
+  </files>
+</package>
