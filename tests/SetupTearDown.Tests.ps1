@@ -16,12 +16,12 @@ MockContext {
     }
 
     # make sure that setup/teardown were called in the right order
-    $logMock.Calls |? Input |% Input | Should Be @('setup', 'it1', 'teardown', 'setup', 'it2', 'teardown')
+    $logMock.Calls |? { $_.Input } |% { $_.Input } | Should Be @('setup', 'it1', 'teardown', 'setup', 'it2', 'teardown')
 
     # make sure teardown happens even with an exception
     Given "given" {
         It "it1" { throw "exception" }
         TestTearDown { "teardown after exception" }
     }
-    $logMock.Calls.Input | Should Contain "teardown after exception"
+    $logMock.Calls |% { $_.Input } | Should Contain "teardown after exception"
 }

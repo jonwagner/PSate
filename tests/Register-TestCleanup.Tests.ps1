@@ -23,7 +23,7 @@ try {
             }
 
         # make sure remove-item was called on our file
-        $removeMock.Calls |? Input -contains $file | Should Count 1
+        $removeMock.Calls |? { $_.Input -contains $file } | Should Count 1
     }
 }
 finally {

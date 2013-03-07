@@ -317,10 +317,10 @@ function Execute-Tests {
             }
 
             # accumulate the results
-            $Context.Time = $Context.Cases |% Time | Measure-Object -Sum |% Sum
-            $Context.Count = $Context.Cases |% Count | Measure-Object -Sum |% Sum
-            $Context.Passed = $Context.Cases |% Passed | Measure-Object -Sum |% Sum
-            $Context.Failed = $Context.Cases |% Failed | Measure-Object -Sum |% Sum
+            $Context.Time = $Context.Cases |% { $_.Time } | Measure-Object -Sum |% { $_.Sum }
+            $Context.Count = $Context.Cases |% { $_.Count } | Measure-Object -Sum |% { $_.Sum }
+            $Context.Passed = $Context.Cases |% { $_.Passed } | Measure-Object -Sum |% { $_.Sum }
+            $Context.Failed = $Context.Cases |% { $_.Failed } | Measure-Object -Sum |% { $_.Sum }
             $Context.Success = ($Context.Failed -eq 0)
             if ($Context.Success) {
                 $Context.Result = 'Success'
@@ -831,7 +831,7 @@ $testSuiteTemplate = @'
 $testCaseTemplate = @'
 "
     <test-case name="$($_.Name)" executed="True" result="$($_.Result)" success="$($_.Success)" time="$($_.Time)" asserts="$($_.Failed)">
-        $($_ |? Failed -gt 0 |% { Invoke-Template $_ $testCaseFailureTemplate })
+        $($_ |? { $_.Failed -gt 0 } |% { Invoke-Template $_ $testCaseFailureTemplate })
         $($_.Cases |% { Invoke-Template $_ $testCaseTemplate })
     </test-case>
 "
@@ -873,11 +873,16 @@ function Get-FilteredStackTrace {
         $Exception
     )
 
-    $Exception.ScriptStackTrace.Split("`n") |
-        ? { $_ -notmatch 'PSate.psm1:' } |
-        ? { $_ -notmatch 'PShould.psm1:' } |
-        ? { $_ -notmatch 'PSMock.psm1:' } |
-        ? { $_ -notmatch 'psake.psm1:' }
+    if ($PSVersionTable.PSVersion.Major -lt 3) {
+        $Exception
+    }
+    else {
+        $Exception.ScriptStackTrace.Split("`n") |
+            ? { $_ -notmatch 'PSate.psm1:' } |
+            ? { $_ -notmatch 'PShould.psm1:' } |
+            ? { $_ -notmatch 'PSMock.psm1:' } |
+            ? { $_ -notmatch 'psake.psm1:' }
+    }
 }
 
 ################################################
@@ -912,6 +917,12 @@ function Get-FilteredStackTrace {
     Defines a test fixture, a sub-group and a case in the fixture.
 #>
 function TestFixture {
+    param (
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
+        [switch] $OutputResults
+    )
+
     Test-Case "Fixture" @args @PSBoundParameters -Group
 }
 
@@ -932,6 +943,12 @@ function TestFixture {
     Defines a test fixture and a case in the fixture.
 #>
 function TestCase {
+    param (
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
+        [switch] $OutputResults
+    )
+
     Test-Case "Case" @args @PSBoundParameters
 }
 
@@ -959,6 +976,12 @@ function TestCase {
     Defines a BDD-style test fixture and a case in the fixture.
 #>
 function TestScope {
+    param (
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
+        [switch] $OutputResults
+    )
+
     Test-Case "Scope" @args @PSBoundParameters -Group
 }
 
@@ -983,6 +1006,12 @@ function TestScope {
     Defines a BDD-style test fixture and a case in the fixture.
 #>
 function Describing {
+    param (
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
+        [switch] $OutputResults
+    )
+
     Test-Case "Describing" @args @PSBoundParameters -Group
 }
 
@@ -1007,6 +1036,12 @@ function Describing {
     Defines a BDD-style test fixture and a case in the fixture.
 #>
 function Given {
+    param (
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
+        [switch] $OutputResults
+    )
+
     Test-Case "Given" @args @PSBoundParameters -Group
 }
 
@@ -1031,6 +1066,12 @@ function Given {
     Defines a BDD-style test fixture and a case in the fixture.
 #>
 function It {
+    param (
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
+        [switch] $OutputResults
+    )
+
     Test-Case "It" @args @PSBoundParameters
 }
 
