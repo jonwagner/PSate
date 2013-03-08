@@ -19,7 +19,7 @@ MockContext {
         }
 
     # make sure we added and removed the folder
-    $newMock.Calls | Should Count 1
+    @($newMock.Calls).Count | Should Be 1
     $newMock.Calls |% { $_.BoundParameters['ItemType'] } | Should Be Container
-    $removeMock.Calls |? { $_.Input -contains "folder" } | Should Count 1
+    @($removeMock.Calls |? { $_.Input -contains "folder" }).Count | Should Be 1
 }

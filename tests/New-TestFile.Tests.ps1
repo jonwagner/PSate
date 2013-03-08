@@ -19,9 +19,9 @@ MockContext {
         }
 
     # make sure we added and removed the file
-    $newMock.Calls | Should Count 1
+    $newMock.Calls.Count | Should Be 1
     $newMock.Calls |% { $_.BoundParameters['ItemType'] } | Should Be File
-    $removeMock.Calls |? { $_.Input -contains "file" } | Should Count 1
+    @($removeMock.Calls |? { $_.Input -contains "file" }).Count | Should Be 1
 }
 
 # now that we know the file is removed properly, let's test the parameters

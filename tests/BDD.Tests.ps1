@@ -28,7 +28,7 @@ MockContext {
     # validate the results structure of the test
     $results.Count | Should Be 2
     $results.Name | Should Be Describing
-    $results.Cases | Should Count 1
+    $results.Cases | Should Count 2
     $results.Cases[0].Name | Should Be Given
     $results.Cases[0].Cases | Should Count 2
     $results.Cases[0].Cases[0].Name | Should Be Passes

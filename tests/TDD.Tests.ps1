@@ -28,9 +28,9 @@ MockContext {
     # validate the results structure of the test
     $results.Count | Should Be 2
     $results.Name | Should Be Fixture
-    $results.Cases | Should Count 1
+    @($results.Cases).Count | Should Be 1
     $results.Cases[0].Name | Should Be Group
-    $results.Cases[0].Cases | Should Count 2
+    @($results.Cases[0].Cases).Count | Should Be 2
     $results.Cases[0].Cases[0].Name | Should Be Passes
     $results.Cases[0].Cases[1].Name | Should Be Fails
 
@@ -43,6 +43,6 @@ MockContext {
     $results.Cases[0].Cases[1].Failed | Should Be 1
 
     # make sure that setup and teardown were called
-    $logMock.Calls |? { $_.Input -contains 'Setup' } | Should Count $results.Count
-    $logMock.Calls |? { $_.Input -contains 'TearDown' } | Should Count $results.Count
+    @($logMock.Calls |? { $_.Input -contains 'Setup' }).Count | Should Be $results.Count
+    @($logMock.Calls |? { $_.Input -contains 'TearDown' }).Count | Should Be $results.Count
 }
