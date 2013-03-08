@@ -1075,8 +1075,120 @@ function It {
     Test-Case "It" @args @PSBoundParameters
 }
 
+################################################
+# Test template creation
+################################################
+
+$systemUnderTestTemplate =
+@'
+"
+function Add-Numbers {
+    param ([int] `$x, [int] `$y)
+    return `$x + `$y
+}
+"
+'@
+
+$testFileTemplate =
+@'
+"TestScope "$($_.TestScriptName).ps1" {
+
+    # enable PSMock (comment this out if not using mocks)
+    Enable-Mock | iex
+
+    # import the script
+    . `$TestScriptPath\$($_.TestScriptName).ps1
+
+    Describing "Calculator" {
+
+        Given "two numbers" {
+            TestSetup {
+                Mock Add-Numbers { 90 } -When {`$x -eq 0}
+                Mock Add-Numbers { 91 } -When {`$y -eq 0}
+            }
+
+            It "Add-Numbers Normal" {
+                Add-Numbers 1 2 | should be 3
+            }
+
+            It "Add-Numbers With X=0" {
+                Add-Numbers 0 2 | should be 90
+            }
+
+            It "Add-Numbers With Y=0" {
+                Add-Numbers 1 0 | should be 91
+            }
+        }
+    }
+}
+"
+'@
+
+<#
+.Synopsis
+    Generates a Test Project template with two files: One that defines a function and another one that contains its tests.
+.Description
+    Generates a Test Project template with two files: One that defines a function and another one that contains its tests.
+.Example
+    New-TestProject -filename "pruebacontemplate"
+
+    Creates .\pruebacontemplate.ps1 and .\pruebacontemplate.Tests.ps1
+
+.Example
+    New-TestProject -filename "pruebacontemplate" -Path "c:\zz\x" -OnlyTestFile
+
+    Creates c:\zz\x\pruebacontemplate.Tests.ps1
+
+.Parameter Filename
+    The name of the test file to generate. New-TestProject will create Filename.ps1 and Filename.Tests.ps1.
+
+.Parameter Path
+    The path to place the test files. Defaults to the current path.
+
+.Parameter OnlyTestFile
+    Add this switch to only create the test file and not the script file. Useful when adding tests to an existing script.
+
+.Parameter Force
+    Enables New-TestProject to overwrite existing files.
+#>
+function New-TestProject
+{
+    [CmdletBinding()]
+    Param
+    (
+        [Parameter(Mandatory=$true,
+                   Position=0)]
+        [String]
+        $Filename,
+
+        [Parameter(Position=1)]
+        [String]
+        $Path = '.',
+
+        [switch]
+        $OnlyTestFile,
+
+        [switch] $Force
+    )
+
+    # don't let people accidentally overwrite their code
+    $NoClobber = !($Force)
+
+    $parameters = @{ "TestScriptName" = $Filename }
+
+    if (!$OnlyTestFile) {
+        Invoke-Template $parameters $systemUnderTestTemplate | Out-File (Join-Path $Path "$Filename.ps1") -Encoding ascii -NoClobber:$NoClobber
+    }
+
+    Invoke-Template $parameters $testFileTemplate | Out-File (Join-Path $Path "$Filename.Tests.ps1") -Encoding ascii -NoClobber:$NoClobber
+}
+
+################################################
+# Exports
+################################################
 Export-ModuleMember Invoke-Tests, Test-Case, Format-AsNUnit, 
     New-TestFolder, New-TestFile, Register-TestCleanup,
     TestSetup, TestTearDown,
     TestFixture, TestCase,
-    TestScope, Describing, Given, It
+    TestScope, Describing, Given, It,
+    New-TestProject
