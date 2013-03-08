@@ -246,126 +246,127 @@ function Test-Case {
 
     # manage the script path for the current context
     $local:oldScriptPath = $global:TestScriptPath
+    if (!$local:oldScriptPath) {
+
         # find the closest point in the stack not in our modules
-        $local:invocation = (Get-PSCallStack | Where { $_.Location -notmatch '^((PSate)|(PSMock)).psm1:' } | Select -First 1)
+        $invocation = (Get-PSCallStack | Where { $_.Location -notmatch '^((PSate)|(PSMock)).psm1:' } | Select -First 1)
 
-        if ($local:invocation -and $local:invocation.ScriptName) {
-            $global:TestScriptPath = Split-Path -Parent $local:invocation.ScriptName
+        if ($invocation -and $invocation.ScriptName) {
+            $global:TestScriptPath = Split-Path -Parent $invocation.ScriptName
         }
+    }
 
-    # set up a new test context
-    $testContext = New-TestContext $Call $Name $testContext -Group:$Group
+    # save the test context to restore later
+    $local:oldTestContext = $global:testContext
 
     try {
-        MockContext {
-            # check filtering
-            if ($testFilter -and ($testContext.Depth -gt 0) -and ($testFilter.Length -ge $testContext.Depth)) {
-                if ($Name -notmatch $testFilter[$testContext.Depth - 1]) {
-                    return
-                }
+        if ($Group) {
+            # if we don't have a current test context, then create one
+            if (!$testContext) {
+                $testContext = New-TestContext $Call $Name $testContext -Group
+                Setup-Group $testContext $ScriptBlock
+                Run-Group $testContext $ScriptBlock
             }
+            elseif (!$testContext.IsSetUp) {
+                # the parent isn't set up yet, so create a new context and register with the parent
+                $testContext = New-TestContext $Call $Name $testContext -Group
+                $testContext.Parent.Cases += $testContext
 
-            # execute the scriptblock to generate the scripts via setup/it/teardown/etc.
-            # or save it for later after setup is complete
-            if ($Group) {
-                . $ScriptBlock | Write-TestLog
-            } else {
-                $testContext.ScriptBlock = $ScriptBlock
-            }
-
-            # if we are at the top level, then start executing the tests
-            if (!$testContext.Parent) {
-                Execute-Tests $testContext
+                Setup-Group $testContext $ScriptBlock
             }
             else {
-                # otherwise wrap the execution for later
-                $testContext.Parent.Cases += $testContext
-            }
+                Run-Group $testContext $ScriptBlock
 
-            if ($OutputResults) {
-                return $testContext
+                # on to the next test
+                $testContext.Parent.CurrentIndex++
             }
+        }
+        else {
+            if (!$testContext) {
+                # root level test case
+                $testContext = New-TestContext $Call $Name $testContext
+                Execute-Test $testContext $ScriptBlock
+            }
+            elseif (!$testContext.IsSetUp) {
+                # the parent isn't set up yet, so create a new context and register with the parent
+                $testContext = New-TestContext $Call $Name $testContext
+                $testContext.Index = $testContext.Parent.Cases.Length
+                $testContext.Parent.Cases += $testContext
+                $testContext.IsSetUp = $true
+            }
+            else {
+                # phase 2 - we are running the parent block once for each test case
+                # if the CurrentIndex = TestIndex, then it's time to run this test
+                if ($testContext.Parent.CurrentIndex -eq $testContext.Parent.TestIndex) {
+                    Execute-Test $testContext $ScriptBlock
+                }
+
+                # on to the next test
+                $testContext.Parent.CurrentIndex++
+            }
+        }
+
+        # output the results if they asked for it
+        if ($OutputResults) {
+            return $testContext
         }
     }
     finally {
-        $testContext = $textContext.Parent
+        $global:testContext = $local:oldTestContext
         $global:TestScriptPath = $local:oldScriptPath
     }
 }
 
-# Execute all of the tests in a context.
-# If this is a leaf context, then execute the test.
-# If this is a container context, then execute a testblock around all of the cases.
-function Execute-Tests {
+# Setup a group of tests
+function Setup-Group {
     param (
-        $Context
+        $Context,
+        [scriptblock] $ScriptBlock
+    )
+
+    # run the script once to set it up
+    Execute-ScriptBlock $Context $ScriptBlock -NewScope
+
+    # we are set up now, so initialize the variables
+    $Context.IsSetUp = $true
+}
+
+# Run a group of tests
+function Run-Group {
+    param (
+        $Context,
+        [scriptblock] $ScriptBlock
     )
 
     try {
-        $testContext = $Context
+        if ($Context.Parent.CurrentIndex -eq $Context.Parent.TestIndex) {
 
-        # if there is a test scriptblock, execute that now
-        if ($Context.ScriptBlock) {
-            Execute-Test $Context
-        }
-        else {
             # this is a container, so run the sub-tests
             Write-TestLog "$($Context.Call) $($Context.Name)" White
 
+            # now it is set up, run it once per case
+            $Context.TestIndex = 0
             foreach ($case in $Context.Cases) {
-                Execute-TestBlock $Context { Execute-Tests $case }
-            }
+                $Context.CurrentIndex = 0
 
-            # accumulate the results
-            $Context.Time = $Context.Cases |% { $_.Time } | Measure-Object -Sum |% { $_.Sum }
-            $Context.Count = $Context.Cases |% { $_.Count } | Measure-Object -Sum |% { $_.Sum }
-            $Context.Passed = $Context.Cases |% { $_.Passed } | Measure-Object -Sum |% { $_.Sum }
-            $Context.Failed = $Context.Cases |% { $_.Failed } | Measure-Object -Sum |% { $_.Sum }
-            $Context.Success = ($Context.Failed -eq 0)
-            if ($Context.Success) {
-                $Context.Result = 'Success'
-            }
-            else {
-                $Context.Result = 'Failure'
+                Execute-ScriptBlock $case $ScriptBlock -NewScope
+
+                $Context.TestIndex++
             }
         }
     }
     finally {
-        $testContext = $Context.Parent
-    }
-}
-
-# Execute a Setup/Test/TearDown block.
-function Execute-TestBlock {
-    param (
-        $Context,
-        [scriptblock] $Test
-    )
-
-    MockContext {
-        try {
-            $testContext = $Context
-
-            # handle setup
-            if ($Context.Setup) { . $Context.Setup | Write-TestLog }
-
-            . $Test | Write-TestLog
+        # accumulate the results
+        $Context.Time = $Context.Cases |% { $_.Time } | Measure-Object -Sum |% { $_.Sum }
+        $Context.Count = $Context.Cases |% { $_.Count } | Measure-Object -Sum |% { $_.Sum }
+        $Context.Passed = $Context.Cases |% { $_.Passed } | Measure-Object -Sum |% { $_.Sum }
+        $Context.Failed = $Context.Cases |% { $_.Failed } | Measure-Object -Sum |% { $_.Sum }
+        $Context.Success = ($Context.Failed -eq 0)
+        if ($Context.Success) {
+            $Context.Result = 'Success'
         }
-        finally {
-            # handle teardown
-            try {
-                if ($Context.TearDown) { . $Context.TearDown | Write-TestLog }
-            }
-            catch {
-                $_ | Write-TestLog
-            }
-
-            # clean up any folders and files
-            [Array]::Reverse($Context.Items)
-            $Context.Items | Remove-Item -Force -Recurse -ErrorAction Continue
-            $Context.Items = @()
-            
-            $testContext = $Context.Parent
+        else {
+            $Context.Result = 'Failure'
         }
     }
 }
@@ -373,46 +374,70 @@ function Execute-TestBlock {
 # Execute a single test.
 function Execute-Test {
     param (
-        $Context
+        $Context,
+        [scriptblock] $ScriptBlock
     )
 
-    # wrap the test in a Setup/TearDown
-    Execute-TestBlock $Context {
+    # execute the case with measurement and capture the error
+    $time = Measure-Command {
+        try {
+            Execute-ScriptBlock $Context $ScriptBlock
 
-        # execute the case with measurement and capture the error
-        $time = Measure-Command {
+            # hooray
+            $Context.Success = $true
+            $Context.Result = 'Success'
+            $Context.Passed = $Context.Passed + 1
+        }
+        catch {
+            # boo
+            $Context.Exception = $_
+            $Context.StackTrace = (Get-FilteredStackTrace $_)
+            $Context.Result = 'Failure'
+            $Context.Success = $false
+            $Context.Failed = $Context.Failed + 1
+        }
+        finally {
+            # auto-teardown - clean up any folders and files
+            [Array]::Reverse($Context.Items)
+            $Context.Items | Remove-Item -Force -Recurse -ErrorAction Continue
+            $Context.Items = @()
+        }
+    }
+    $Context.Time = $time.TotalSeconds
 
-            # create a mock context for the actual execution
-            MockContext {
-                try {
-                    . $Context.ScriptBlock | Write-TestLog
+    # output the results
+    $Context.Count = $Context.Count + 1
+    if ($Context.Success) {
+        Write-TestLog "[+] $($Context.Call) $($Context.Name) [$(Format-Time $Context.Time)]" Green
+    }
+    else {
+        Write-TestLog "[-] $($Context.Call) $($Context.Name) [$(Format-Time $Context.Time)]" Red
+        Write-TestLog "    $($Context.Exception)" Red
+        $Context.StackTrace |% { Write-TestLog  "    $_" Red }
+    }
+}
 
-                    # hooray
-                    $Context.Success = $true
-                    $Context.Result = 'Success'
-                    $Context.Passed = $Context.Passed + 1
-                }
-                catch {
-                    # boo
-                    $Context.Exception = $_
-                    $Context.StackTrace = (Get-FilteredStackTrace $_)
-                    $Context.Result = 'Failure'
-                    $Context.Success = $false
-                    $Context.Failed = $Context.Failed + 1
-                }
+function Execute-ScriptBlock {
+    param (
+        $Context,
+        [scriptblock] $ScriptBlock,
+        [switch] $NewScope
+    )
+
+    # create a mock context, test context, and (optional) variable scope
+    MockContext {
+        try {
+            $testContext = $Context
+
+            if ($NewScope) {
+                & $ScriptBlock | Write-TestLog
+            }
+            else {
+                . $ScriptBlock | Write-TestLog
             }
         }
-        $Context.Time = $time.TotalSeconds
-
-        # output the results
-        $Context.Count = $Context.Count + 1
-        if ($Context.Success) {
-            Write-TestLog "[+] $($Context.Call) $($Context.Name) [$(Format-Time $Context.Time)]" Green
-        }
-        else {
-            Write-TestLog "[-] $($Context.Call) $($Context.Name) [$(Format-Time $Context.Time)]" Red
-            Write-TestLog "    $($Context.Exception)" Red
-            $Context.StackTrace |% { Write-TestLog  "    $_" Red }
+        finally {
+            $testContext = $Context.Parent
         }
     }
 }
@@ -422,7 +447,7 @@ function Execute-Test {
 ################################################
 <#
 .Synopsis
-    Defines a Setup block that is executed before each inner test.
+     Defines a Setup block that is executed before each inner test.
 
 .Description
     Defines a Setup block that is executed before each inner test. 
@@ -474,14 +499,16 @@ function TestSetup {
     if (!$testContext) {
         throw "Test Setup can only be called from within a test context"
     }
+    if ($testContext.IsSetUp) {
+        . $ScriptBlock
+        return
+    }
     if (!$testContext.Group) {
         throw "Test Setup can only be called from within a grouping test context"
     }
     if ($testContext.Setup) {
         throw "There is already a Setup script for $($testContext.Call) $($testContext.Name)"
     }
-
-    $testContext.Setup = $ScriptBlock
 }
 
 <#
@@ -538,14 +565,16 @@ function TestTearDown {
     if (!$testContext) {
         throw "Test TearDown can only be called from within a test context"
     }
+    if ($testContext.IsSetUp) {
+        . $ScriptBlock
+        return
+    }
     if (!$testContext.Group) {
         throw "Test TearDown can only be called from within a grouping test context"
     }
     if ($testContext.TearDown) {
         throw "There is already a TearDown script for $($testContext.Call) $($testContext.Name)"
     }
-
-    $testContext.TearDown = $ScriptBlock
 }
 
 ################################################
@@ -716,21 +745,21 @@ function New-TestContext {
     )
 
     $context = @{
+        "IsSetUp" = $false
+
         "Call" = $Call
         "Name" = $Name
         "Parent" = $Parent
         "Group" = $Group
-
-        "Setup" = $null
         "Cases" = @()
-        "TearDown" = $null
-        "ScriptBlock" = $null
+
+        # cleanup items
         "Items" = @()
 
+        # results
         "Success" = $null
         "Time" = $null
         "Exception" = $null
-
         "Count" = 0
         "Passed" = 0
         "Failed" = 0
