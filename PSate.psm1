@@ -325,7 +325,7 @@ function Setup-Group {
     )
 
     # run the script once to set it up
-    Execute-ScriptBlock $Context $ScriptBlock -NewScope
+    Execute-ScriptBlock $Context $ScriptBlock
 
     # we are set up now, so initialize the variables
     $Context.IsSetUp = $true
@@ -349,7 +349,7 @@ function Run-Group {
             foreach ($case in $Context.Cases) {
                 $Context.CurrentIndex = 0
 
-                Execute-ScriptBlock $case $ScriptBlock -NewScope
+                Execute-ScriptBlock $case $ScriptBlock
 
                 $Context.TestIndex++
             }
@@ -420,21 +420,15 @@ function Execute-Test {
 function Execute-ScriptBlock {
     param (
         $Context,
-        [scriptblock] $ScriptBlock,
-        [switch] $NewScope
+        [scriptblock] $ScriptBlock
     )
 
-    # create a mock context, test context, and (optional) variable scope
+    # create a mock context, test context, and variable scope
     MockContext {
         try {
             $testContext = $Context
 
-            if ($NewScope) {
-                & $ScriptBlock | Write-TestLog
-            }
-            else {
-                . $ScriptBlock | Write-TestLog
-            }
+            & $ScriptBlock | Write-TestLog
         }
         finally {
             $testContext = $Context.Parent
