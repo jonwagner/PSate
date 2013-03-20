@@ -1,7 +1,5 @@
 ﻿Enable-Mock | iex
 
-import-module .\PSate.psm1 -Force
-
 # verify that variable scopes behave as expected
 $script:value = "script"
 $script:value | Should Be "script"

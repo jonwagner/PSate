@@ -260,50 +260,28 @@ function Test-Case {
     $local:oldTestContext = $global:testContext
 
     try {
-        if ($Group) {
-            # if we don't have a current test context, then create one
-            if (!$testContext) {
-                $testContext = New-TestContext $Call $Name $testContext -Group
-                Setup-Group $testContext $ScriptBlock
-                Run-Group $testContext $ScriptBlock
-            }
-            elseif (!$testContext.IsSetUp) {
-                # the parent isn't set up yet, so create a new context and register with the parent
-                $testContext = New-TestContext $Call $Name $testContext -Group
-                $testContext.Parent.Cases += $testContext
+        # create a new test context for this
+        $testContext = New-TestContext $Call $Name $testContext -Group:$Group
 
-                Setup-Group $testContext $ScriptBlock
+        # if this is the root item or it is our turn to execute, then run the test
+        if (($testContext.Parent -eq $null) -or ($testContext.Parent.TestIndex -eq $testContext.Parent.TestPass)) {
+
+            if ($Group) {
+                Run-Group $testContext $ScriptBlock
             }
             else {
-                Run-Group $testContext $ScriptBlock
-
-                # on to the next test
-                $testContext.Parent.CurrentIndex++
-            }
-        }
-        else {
-            if (!$testContext) {
-                # root level test case
-                $testContext = New-TestContext $Call $Name $testContext
                 Execute-Test $testContext $ScriptBlock
             }
-            elseif (!$testContext.IsSetUp) {
-                # the parent isn't set up yet, so create a new context and register with the parent
-                $testContext = New-TestContext $Call $Name $testContext
-                $testContext.Index = $testContext.Parent.Cases.Length
-                $testContext.Parent.Cases += $testContext
-                $testContext.IsSetUp = $true
-            }
-            else {
-                # phase 2 - we are running the parent block once for each test case
-                # if the CurrentIndex = TestIndex, then it's time to run this test
-                if ($testContext.Parent.CurrentIndex -eq $testContext.Parent.TestIndex) {
-                    Execute-Test $testContext $ScriptBlock
-                }
 
-                # on to the next test
-                $testContext.Parent.CurrentIndex++
+            # append the results to the parent
+            if ($testContext.Parent) {
+                $testContext.Parent.Cases += $testContext
             }
+        }
+
+        # go to the next test
+        if ($testContext.Parent) {
+            $testContext.Parent.TestIndex++
         }
 
         # output the results if they asked for it
@@ -317,20 +295,6 @@ function Test-Case {
     }
 }
 
-# Setup a group of tests
-function Setup-Group {
-    param (
-        $Context,
-        [scriptblock] $ScriptBlock
-    )
-
-    # run the script once to set it up
-    Execute-ScriptBlock $Context $ScriptBlock
-
-    # we are set up now, so initialize the variables
-    $Context.IsSetUp = $true
-}
-
 # Run a group of tests
 function Run-Group {
     param (
@@ -339,23 +303,24 @@ function Run-Group {
     )
 
     try {
-        if ($Context.Parent.CurrentIndex -eq $Context.Parent.TestIndex) {
+        # this is a container, so run the sub-tests
+        Write-TestLog "$($Context.Call) $($Context.Name)" White
 
-            # this is a container, so run the sub-tests
-            Write-TestLog "$($Context.Call) $($Context.Name)" White
-
-            # now it is set up, run it once per case
+        # run the script until all of the inner cases have run
+        # the script block will execute at least once, even if there are no tests
+        $Context.TestPass = 0
+        $Context.TestIndex = 1
+        while ($Context.TestPass -lt $Context.TestIndex) {
             $Context.TestIndex = 0
-            foreach ($case in $Context.Cases) {
-                $Context.CurrentIndex = 0
 
-                Execute-ScriptBlock $case $ScriptBlock
+            Execute-ScriptBlock $Context $ScriptBlock
 
-                $Context.TestIndex++
-            }
+            $Context.TestPass++
         }
     }
     finally {
+        Cleanup-Test $Context
+
         # accumulate the results
         $Context.Time = $Context.Cases |% { $_.Time } | Measure-Object -Sum |% { $_.Sum }
         $Context.Count = $Context.Cases |% { $_.Count } | Measure-Object -Sum |% { $_.Sum }
@@ -397,10 +362,7 @@ function Execute-Test {
             $Context.Failed = $Context.Failed + 1
         }
         finally {
-            # auto-teardown - clean up any folders and files
-            [Array]::Reverse($Context.Items)
-            $Context.Items | Remove-Item -Force -Recurse -ErrorAction Continue
-            $Context.Items = @()
+            Cleanup-Test $Context
         }
     }
     $Context.Time = $time.TotalSeconds
@@ -434,6 +396,17 @@ function Execute-ScriptBlock {
             $testContext = $Context.Parent
         }
     }
+}
+
+function Cleanup-Test {
+    param (
+        $Context
+    )
+
+    # auto-teardown - clean up any folders and files
+    [Array]::Reverse($Context.Items)
+    $Context.Items | Remove-Item -Force -Recurse -ErrorAction Continue
+    $Context.Items = @()
 }
 
 ################################################
@@ -493,16 +466,12 @@ function TestSetup {
     if (!$testContext) {
         throw "Test Setup can only be called from within a test context"
     }
-    if ($testContext.IsSetUp) {
-        . $ScriptBlock
-        return
-    }
+
     if (!$testContext.Group) {
         throw "Test Setup can only be called from within a grouping test context"
     }
-    if ($testContext.Setup) {
-        throw "There is already a Setup script for $($testContext.Call) $($testContext.Name)"
-    }
+
+    . $ScriptBlock
 }
 
 <#
@@ -559,16 +528,11 @@ function TestTearDown {
     if (!$testContext) {
         throw "Test TearDown can only be called from within a test context"
     }
-    if ($testContext.IsSetUp) {
-        . $ScriptBlock
-        return
-    }
     if (!$testContext.Group) {
         throw "Test TearDown can only be called from within a grouping test context"
     }
-    if ($testContext.TearDown) {
-        throw "There is already a TearDown script for $($testContext.Call) $($testContext.Name)"
-    }
+
+    . $ScriptBlock
 }
 
 ################################################
@@ -739,8 +703,6 @@ function New-TestContext {
     )
 
     $context = @{
-        "IsSetUp" = $false
-
         "Call" = $Call
         "Name" = $Name
         "Parent" = $Parent
