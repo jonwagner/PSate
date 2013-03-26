@@ -1,4 +1,4 @@
-﻿<#
+<#
     PSate - copyright(c) 2013 - Jon Wagner
     See https://github.com/jonwagner/PSate for licensing and other information.
     Version: $version$
@@ -138,14 +138,7 @@ function Invoke-Tests {
             # find all of the child-items that match
             Get-ChildItem $Path -Filter "*.Tests.ps1" -Recurse:$Recurse |% {
                 Test-Case "Invoking" $_.FullName -Group { 
-                    $scriptName = $_.FullName
-                    try {
-                        . $_.FullName 
-                    }
-                    catch {
-                        Write-Error "Exception while running $scriptName"
-                        throw $_
-                    }
+                    . $_.FullName
                 }
             }
         }
@@ -244,24 +237,21 @@ function Test-Case {
         [switch] $OutputResults
     )
 
-    # manage the script path for the current context
-    $local:oldScriptPath = $global:TestScriptPath
-    if (!$local:oldScriptPath) {
-
-        # find the closest point in the stack not in our modules
-        $invocation = (Get-PSCallStack | Where { $_.Location -notmatch '^((PSate)|(PSMock)).psm1:' } | Select -First 1)
-
-        if ($invocation -and $invocation.ScriptName) {
-            $global:TestScriptPath = Split-Path -Parent $invocation.ScriptName
-        }
-    }
-
     # save the test context to restore later
     $local:oldTestContext = $global:testContext
+    $local:oldTestScriptPath = $global:TestScriptPath
 
     try {
         # create a new test context for this
         $testContext = New-TestContext $Call $Name $testContext -Group:$Group
+
+        # save the script path on the context
+        # find the closest point in the stack not in our modules
+        $invocation = (Get-PSCallStack | Where { $_.Location -notmatch '^((PSate)|(PSMock)).psm1:' } | Select -First 1)
+        if ($invocation -and $invocation.ScriptName) {
+            $global:TestScriptPath = Split-Path -Parent $invocation.ScriptName
+        }
+        $testContext.ScriptPath = $global:TestScriptPath
 
         # if this is the root item or it is our turn to execute, then run the test
         if (($testContext.Parent -eq $null) -or ($testContext.Parent.TestIndex -eq $testContext.Parent.TestPass)) {
@@ -291,7 +281,7 @@ function Test-Case {
     }
     finally {
         $global:testContext = $local:oldTestContext
-        $global:TestScriptPath = $local:oldScriptPath
+        $global:TestScriptPath = $local:oldTestScriptPath
     }
 }
 
