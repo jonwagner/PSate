@@ -130,7 +130,7 @@ function Invoke-Tests {
 
     try {
         # initialize the global variables
-        $testFilter = $Filter
+        $global:testFilter = "*","*"+@($Filter)
         $testOutput = $Output
 
         # invoke the tests
@@ -238,6 +238,7 @@ function Test-Case {
     )
 
     # save the test context to restore later
+    $local:testFilter = $global:testFilter
     $local:oldTestContext = $global:testContext
     $local:oldTestScriptPath = $global:TestScriptPath
 
@@ -256,7 +257,10 @@ function Test-Case {
         # if this is the root item or it is our turn to execute, then run the test
         if (($testContext.Parent -eq $null) -or ($testContext.Parent.TestIndex -eq $testContext.Parent.TestPass)) {
 
-            if ($Group) {
+            if (($testContext.Depth -lt $testFilter.length) -and ($testFilter[$testContext.Depth] -ne '*') -and ($testFilter[$testContext.Depth] -ne $testContext.Name)) {
+                # don't run tests that are filtered out    
+            }
+            elseif ($Group) {
                 Run-Group $testContext $ScriptBlock
             }
             else {
@@ -280,6 +284,7 @@ function Test-Case {
         }
     }
     finally {
+        $global:testFilter = $local:testFilter
         $global:testContext = $local:oldTestContext
         $global:TestScriptPath = $local:oldTestScriptPath
     }
