@@ -130,7 +130,8 @@ function Invoke-Tests {
 
     try {
         # initialize the global variables
-        $global:testFilter = "*","*"+@($Filter)
+        $testFilter = @("*","*")
+        if ($Filter -ne $null) { $testFilter = $testFilter + @($Filter) }
         $testOutput = $Output
 
         # invoke the tests
@@ -238,7 +239,6 @@ function Test-Case {
     )
 
     # save the test context to restore later
-    $local:testFilter = $global:testFilter
     $local:oldTestContext = $global:testContext
     $local:oldTestScriptPath = $global:TestScriptPath
 
@@ -284,7 +284,6 @@ function Test-Case {
         }
     }
     finally {
-        $global:testFilter = $local:testFilter
         $global:testContext = $local:oldTestContext
         $global:TestScriptPath = $local:oldTestScriptPath
     }
