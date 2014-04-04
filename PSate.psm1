@@ -70,6 +70,7 @@ if (!(Get-Command MockContext -ErrorAction SilentlyContinue)) {
     * Quiet - no output is given
     * Log - a text representation of the test results is output
     * Results - the test results object is output
+    * Flat - a flat array or test results is output
     * NUnit - an NUnit-compatible test result XML structure is output
 
 .Parameter NUnit
@@ -116,7 +117,7 @@ function Invoke-Tests {
         [string] $Path = '.',
         [Alias('f')]
         [string[]] $Filter,
-        [ValidateSet('Quiet', 'Log', 'Results', 'NUnit')]
+        [ValidateSet('Quiet', 'Log', 'Results', 'NUnit', 'Flat')]
         [Alias('o')]
         [string] $Output = 'Log',
         [Alias('n')]
@@ -156,6 +157,7 @@ function Invoke-Tests {
         # output the results if requested
         if ($Output -eq 'Results') { $Results }
         elseif ($Output -eq 'NUnit') { $Results | Format-AsNUnit }
+        elseif ($Output -eq 'Flat') { $Results | Format-AsFlatTests }
 
         # if they want to write nunit to a file, we can do that too
         if ($NUnit) {
@@ -740,6 +742,19 @@ function Write-TestLog {
         if ($testOutput -eq 'Log') {
             "$(" " * $testContext.Depth * 2)$Object" | Write-Host -ForegroundColor $Color
         }
+    }
+}
+
+# formats a result object as an NUnit output
+function Format-AsFlatTests {
+    param (
+        [Parameter(Mandatory=$true, ValueFromPipeline=$true)] $TestResults
+    )
+
+    if ($TestResults.Group) {
+        $TestResults.Cases |% { $_ | Format-AsFlatTests }
+    } else {
+        $TestResults
     }
 }
 
