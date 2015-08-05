@@ -401,7 +401,7 @@ function Cleanup-Test {
 
     # auto-teardown - clean up any folders and files
     [Array]::Reverse($Context.Items)
-    $Context.Items | Remove-Item -Force -Recurse -ErrorAction Continue
+    $Context.Items | Remove-Item -Force -Recurse -ErrorAction SilentlyContinue
     $Context.Items = @()
 }
 
