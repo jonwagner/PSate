@@ -205,6 +205,12 @@ function Invoke-Tests {
     is deferred until the outer group Setup blocks are executed.
     This is all handled for you if you use one of the other functions.
 
+.Parameter DataDriven
+    This switch tells PSate to turn off its normal way of calling the setup and teardown blocks once per test,
+    and instead call the entire block once only. This is intended to allow nesting of test cases in loops.
+    At small numbers of cases (under a few hundred) then this switch is not too important, but at large numbers
+    of test cases, this switch can decrease test times by several orders of magnitude.
+
 .Example
     Test-Case "Math" -Group {
         Test-Case "Add" {
@@ -217,6 +223,18 @@ function Invoke-Tests {
     }
 
     Defines a group of Math test cases, with an Add and a Subtract case.
+
+.Example
+    Test-Case "Math Tables" -Group -DataDriven {
+        1..12 | % { 
+            Test-Case "Three-times tables" {
+              $_ * 3 | Should Be $_ + $_ + $_
+            }
+        }
+    }
+
+    Defines a group of Math Tables test cases, with twelve multiplication cases.
+
 
 .Link
     TestFixture
@@ -237,6 +255,7 @@ function Test-Case {
         [Parameter(Mandatory=$true)] [string] $Name,
         [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
         [switch] $Group,
+        [switch] $DataDriven,
         [switch] $OutputResults
     )
 
@@ -246,7 +265,7 @@ function Test-Case {
 
     try {
         # create a new test context for this
-        $testContext = New-TestContext $Call $Name $testContext -Group:$Group
+        $testContext = New-TestContext $Call $Name $testContext -Group:$Group -DataDriven:$DataDriven
 
         # save the script path on the context
         # find the closest point in the stack not in our modules
@@ -256,8 +275,9 @@ function Test-Case {
         }
         $testContext.ScriptPath = $global:TestScriptPath
 
-        # if this is the root item or it is our turn to execute, then run the test
-        if (($testContext.Parent -eq $null) -or ($testContext.Parent.TestIndex -eq $testContext.Parent.TestPass)) {
+
+        # if this is the root item or the user wants to run all tests once (data driven) or it is our turn to execute, then run the test
+        if (($testContext.Parent -eq $null) -or $testContext.Parent.DataDriven -or ($testContext.Parent.TestIndex -eq $testContext.Parent.TestPass)) {
 
             if (($testContext.Depth -lt $testFilter.length) -and ($testFilter[$testContext.Depth] -ne '*') -and ($testFilter[$testContext.Depth] -ne $testContext.Name)) {
                 # don't run tests that are filtered out    
@@ -289,6 +309,8 @@ function Test-Case {
         $global:testContext = $local:oldTestContext
         $global:TestScriptPath = $local:oldTestScriptPath
     }
+
+
 }
 
 # Run a group of tests
@@ -302,16 +324,24 @@ function Run-Group {
         # this is a container, so run the sub-tests
         Write-TestLog "$($Context.Call) $($Context.Name)" White
 
-        # run the script until all of the inner cases have run
-        # the script block will execute at least once, even if there are no tests
-        $Context.TestPass = 0
-        $Context.TestIndex = 1
-        while ($Context.TestPass -lt $Context.TestIndex) {
+        if ($Context.DataDriven) {
+            # Run the test once, since the user is handling the looping.
             $Context.TestIndex = 0
-
             Execute-ScriptBlock $Context $ScriptBlock
+            $Context.TestIndex = 1
+            $Context.TestPass = 1
+        } else {
+          # run the script until all of the inner cases have run
+          # the script block will execute at least once, even if there are no tests
+          $Context.TestPass = 0
+            $Context.TestIndex = 1
+            while ($Context.TestPass -lt $Context.TestIndex) {
+              $Context.TestIndex = 0
 
-            $Context.TestPass++
+                Execute-ScriptBlock $Context $ScriptBlock
+
+                $Context.TestPass++
+            }
         }
     }
     finally {
@@ -363,6 +393,7 @@ function Execute-Test {
     }
     $Context.Time = $time.TotalSeconds
 
+
     # output the results
     $Context.Count = $Context.Count + 1
     if ($Context.Success) {
@@ -373,6 +404,8 @@ function Execute-Test {
         Write-TestLog "    $($Context.Exception)" Red
         $Context.StackTrace |% { Write-TestLog  "    $_" Red }
     }
+
+
 }
 
 function Execute-ScriptBlock {
@@ -695,7 +728,8 @@ function New-TestContext {
         [string] $Call,
         [string] $Name,
         $Parent,
-        [switch] $Group
+        [switch] $Group,
+        [switch] $DataDriven
     )
 
     $context = @{
@@ -703,6 +737,7 @@ function New-TestContext {
         "Name" = $Name
         "Parent" = $Parent
         "Group" = $Group
+        "DataDriven" = $DataDriven
         "Cases" = @()
 
         # cleanup items
@@ -919,6 +954,15 @@ function TestFixture {
 
     Test-Case "Fixture" @args @PSBoundParameters -Group
 }
+function EachTestFixture {
+    param (
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
+        [switch] $OutputResults
+    )
+
+    Test-Case "Fixture" @args @PSBoundParameters -Group -DataDriven
+}
 
 <#
 .Synopsis
@@ -978,6 +1022,15 @@ function TestScope {
 
     Test-Case "Scope" @args @PSBoundParameters -Group
 }
+function EachTestScope {
+    param (
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
+        [switch] $OutputResults
+    )
+
+    Test-Case "Scope" @args @PSBoundParameters -Group -DataDriven
+}
 
 <#
 .Synopsis
@@ -1008,6 +1061,15 @@ function Describing {
 
     Test-Case "Describing" @args @PSBoundParameters -Group
 }
+function DescribingEach {
+    param (
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
+        [switch] $OutputResults
+    )
+
+    Test-Case "Describing" @args @PSBoundParameters -Group -DataDriven
+}
 
 <#
 .Synopsis
@@ -1037,6 +1099,15 @@ function Given {
     )
 
     Test-Case "Given" @args @PSBoundParameters -Group
+}
+function GivenEach {
+    param (
+        [Parameter(Mandatory=$true)] [string] $Name,
+        [Parameter(Mandatory=$true)] [scriptblock] $ScriptBlock,
+        [switch] $OutputResults
+    )
+
+    Test-Case "Given" @args @PSBoundParameters -Group -DataDriven
 }
 
 <#
@@ -1183,6 +1254,6 @@ function New-TestProject
 Export-ModuleMember Invoke-Tests, Test-Case, Format-AsNUnit, 
     New-TestFolder, New-TestFile, Register-TestCleanup,
     TestSetup, TestTearDown,
-    TestFixture, TestCase,
-    TestScope, Describing, Given, It,
+    TestFixture, EachTestFixture, TestCase,
+    TestScope, EachTestScope, Describing, DescribingEach, Given, GivenEach, It,
     New-TestProject
